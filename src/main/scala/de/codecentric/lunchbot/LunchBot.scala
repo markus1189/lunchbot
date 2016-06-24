@@ -1,10 +1,12 @@
 package de.codecentric.lunchbot
 
+import java.util.concurrent.CountDownLatch
+
 import akka.Done
-import akka.actor.ActorSystem
+import akka.actor.{ActorSystem, Terminated}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
-import akka.http.scaladsl.model.ws.{Message, WebSocketRequest, WebSocketUpgradeResponse}
+import akka.http.scaladsl.model.ws.{Message, TextMessage, WebSocketRequest, WebSocketUpgradeResponse}
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.ActorMaterializer
@@ -31,7 +33,7 @@ object LunchBot extends App with CirceSupport {
 
   val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
 
-  val responseFuture: Future[HttpResponse] = Http().singleRequest(HttpRequest(uri = "https://slack.com/api/rtm.start?<token>"))
+  val responseFuture: Future[HttpResponse] = Http().singleRequest(HttpRequest(uri = "https://slack.com/api/rtm.start?token=<TOKEN>"))
   val response = Await.result(responseFuture, Duration.Inf)
   val unmarshalled: Future[Json] = Unmarshal(response.entity).to[Json]
   val json: Json = Await.result(unmarshalled, Duration.Inf)
@@ -42,26 +44,21 @@ object LunchBot extends App with CirceSupport {
 
   val webSocketFlow: Flow[Message, Message, Future[WebSocketUpgradeResponse]] = Http().webSocketClientFlow(WebSocketRequest(wss))
 
-  val (upgradeResponse, closed) =
-    Source.empty
+  val (upgradeResponse: Future[WebSocketUpgradeResponse], closed: Future[Done]) =
+    Source.repeat(TextMessage("hello"))
       .viaMat(webSocketFlow)(Keep.right) // keep the materialized Future[WebSocketUpgradeResponse]
       .toMat(Sink.foreach(println))(Keep.both) // also keep the Future[Done]
       .run()
 
-  val connected = upgradeResponse.flatMap { upgrade =>
-    if (upgrade.response.status == StatusCodes.OK) {
-      Future.successful(Done)
-    } else {
-      throw new RuntimeException(s"Connection failed: ${upgrade.response.status}")
-    }
-  }
+  val r: WebSocketUpgradeResponse = Await.result(upgradeResponse, Duration.Inf)
+  println(r)
 
-  Await.result(connected, Duration.Inf)
+  val c = Await.result(closed, Duration.Inf)
+  println("CLOSED: " + c)
 
-  //TODO ascii art ftw (i´m the lunchbot baby!)
-  println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
-  StdIn.readLine()
-  bindingFuture
-    .flatMap(_.unbind())
-    .onComplete(_ => system.terminate())
+  println("Press enter to exit")
+  System.in.read()
+
+  materializer.shutdown()
+  Await.result(system.terminate(), Duration.Inf)
 }
