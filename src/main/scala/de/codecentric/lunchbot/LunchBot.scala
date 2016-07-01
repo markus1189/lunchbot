@@ -4,13 +4,16 @@ import akka.Done
 import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
-import akka.http.scaladsl.model.ws.{Message, WebSocketRequest, WebSocketUpgradeResponse}
+import akka.http.scaladsl.model.ws.{Message, TextMessage, WebSocketRequest, WebSocketUpgradeResponse}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
+import cats.data.Xor
 import com.typesafe.config.{Config, ConfigFactory}
 import de.heikoseeberger.akkahttpcirce.CirceSupport
 import io.circe.Json
+import io.circe.parse
+import io.circe.generic.auto._
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
@@ -22,11 +25,12 @@ object LunchBot extends App with CirceSupport {
 
   val token: String = config.getString("lunchbot.token")
 
-  def websocketUrl: Future[Option[WebsocketUrl]] = for {
+  def handshake: Future[Option[SlackHandShake]] = for {
     response <- Http().singleRequest(HttpRequest(uri = s"https://slack.com/api/rtm.start?token=$token"))
     json <- Unmarshal(response.entity).to[Json]
+    camelCaseJson = JsonUtils.snakeCaseToCamelCaseAll(json)
   } yield {
-    json.cursor.downField("url").get.as[String].toOption.map(WebsocketUrl(_))
+    camelCaseJson.as[SlackHandShake].toOption
   }
 
   def slackSource(url: WebsocketUrl): Source[Message, ActorRef] = {
@@ -41,11 +45,20 @@ object LunchBot extends App with CirceSupport {
   implicit val materializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
 
+  val sink: Sink[Message, Future[Done]] = Sink.foreach {
+    case TextMessage.Strict(text) =>
+      parse.parse(text).map(JsonUtils.snakeCaseToCamelCaseAll) match {
+        case Xor.Left(_) => ()
+        case Xor.Right(json) => () // TODO
+      }
+    case _ => ()
+  }
+
   val result: Future[(ActorRef, Future[Done])] = for {
-    urlOpt <- websocketUrl
-    if urlOpt.isDefined
+    hs <- handshake
+    if hs.isDefined
   } yield {
-    slackSource(urlOpt.get).toMat(Sink.foreach(println))(Keep.both).run()
+    slackSource(WebsocketUrl(hs.get.url)).toMat(sink)(Keep.both).run()
   }
 
   val (actorRef, done) = Await.result(result, Duration.Inf)
