@@ -1,60 +1,55 @@
 package de.codecentric.lunchbot
 
-import java.util.concurrent.CountDownLatch
-
 import akka.Done
-import akka.actor.{ActorSystem, Terminated}
+import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
-import akka.http.scaladsl.model.ws.{Message, TextMessage, WebSocketRequest, WebSocketUpgradeResponse}
-import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.model.ws.{Message, WebSocketRequest, WebSocketUpgradeResponse}
 import akka.http.scaladsl.unmarshalling.Unmarshal
-import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.stream.{ActorMaterializer, OverflowStrategy}
+import com.typesafe.config.{Config, ConfigFactory}
 import de.heikoseeberger.akkahttpcirce.CirceSupport
 import io.circe.Json
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
-import scala.io.StdIn
 
+case class WebsocketUrl(value: String) extends AnyVal
 
 object LunchBot extends App with CirceSupport {
+  val config: Config = ConfigFactory.load()
+
+  val token: String = config.getString("lunchbot.token")
+
+  def websocketUrl: Future[Option[WebsocketUrl]] = for {
+    response <- Http().singleRequest(HttpRequest(uri = s"https://slack.com/api/rtm.start?token=$token"))
+    json <- Unmarshal(response.entity).to[Json]
+  } yield {
+    json.cursor.downField("url").get.as[String].toOption.map(WebsocketUrl(_))
+  }
+
+  def slackSource(url: WebsocketUrl): Source[Message, ActorRef] = {
+    val webSocketFlow: Flow[Message, Message, Future[WebSocketUpgradeResponse]] =
+      Http().webSocketClientFlow(WebSocketRequest(url.value))
+
+    Source.actorRef(1000, OverflowStrategy.dropHead)
+      .viaMat(webSocketFlow)(Keep.left)
+  }
+
   implicit val system = ActorSystem("LunchBot-System")
   implicit val materializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
 
-  val route =
-    path("hello") {
-      get {
-        complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>Say hello to akka-http</h1>"))
-      }
-    }
+  val result: Future[(ActorRef, Future[Done])] = for {
+    urlOpt <- websocketUrl
+    if urlOpt.isDefined
+  } yield {
+    slackSource(urlOpt.get).toMat(Sink.foreach(println))(Keep.both).run()
+  }
 
-  val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
-
-  val responseFuture: Future[HttpResponse] = Http().singleRequest(HttpRequest(uri = "https://slack.com/api/rtm.start?token=<TOKEN>"))
-  val response = Await.result(responseFuture, Duration.Inf)
-  val unmarshalled: Future[Json] = Unmarshal(response.entity).to[Json]
-  val json: Json = Await.result(unmarshalled, Duration.Inf)
-
-  val wss: String = json.cursor.downField("url").get.as[String].getOrElse(sys.error("error"))
-
-  println(wss)
-
-  val webSocketFlow: Flow[Message, Message, Future[WebSocketUpgradeResponse]] = Http().webSocketClientFlow(WebSocketRequest(wss))
-
-  val (upgradeResponse: Future[WebSocketUpgradeResponse], closed: Future[Done]) =
-    Source.repeat(TextMessage("hello"))
-      .viaMat(webSocketFlow)(Keep.right) // keep the materialized Future[WebSocketUpgradeResponse]
-      .toMat(Sink.foreach(println))(Keep.both) // also keep the Future[Done]
-      .run()
-
-  val r: WebSocketUpgradeResponse = Await.result(upgradeResponse, Duration.Inf)
-  println(r)
-
-  val c = Await.result(closed, Duration.Inf)
-  println("CLOSED: " + c)
+  val (actorRef, done) = Await.result(result, Duration.Inf)
+  Await.result(done, Duration.Inf)
 
   println("Press enter to exit")
   System.in.read()
