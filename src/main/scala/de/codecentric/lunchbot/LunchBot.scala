@@ -10,14 +10,14 @@ import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
 import cats.data.Xor
 import com.typesafe.config.{Config, ConfigFactory}
+import de.codecentric.lunchbot.ReceiveActor.SlackEndpoint
 import de.heikoseeberger.akkahttpcirce.CirceSupport
 import io.circe.Decoder.Result
-import io.circe.{DecodingFailure, Json, parse}
 import io.circe.generic.auto._
 import io.circe.syntax._
+import io.circe.{DecodingFailure, Json, parse}
 
-import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, Future}
+import scala.concurrent.Future
 
 case class WebsocketUrl(value: String) extends AnyVal
 
@@ -47,11 +47,14 @@ object LunchBot extends App with CirceSupport {
   implicit val materializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
 
+  val receiveActor = system.actorOf(ReceiveActor.props(defaultChannel))
+
   val sink: Sink[Message, Future[Done]] = Sink.foreach {
     case TextMessage.Strict(text) =>
       parse.parse(text).map(JsonUtils.snakeCaseToCamelCaseAll) match {
         case Xor.Left(_) => ()
-        case Xor.Right(json) => () // TODO
+        case Xor.Right(json) =>
+          json.as[IncomingSlackMessage].foreach(msg => receiveActor ! msg)
       }
     case _ => ()
   }
@@ -70,6 +73,7 @@ object LunchBot extends App with CirceSupport {
     case Xor.Left(err) => Future.successful(println(s"Handshake failed: $err"))
     case Xor.Right((actorRef, done)) =>
 
+      receiveActor ! SlackEndpoint(actorRef)
       actorRef ! TextMessage(OutgoingSlackMessage(42, defaultChannel, "I'm active").asJson.toString)
 
       println("Press enter to exit")

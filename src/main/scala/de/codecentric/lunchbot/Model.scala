@@ -74,4 +74,4 @@ object OutgoingSlackMessage {
   }
 }
 
-case class IncomingSlackMessage(`type`: String, channel: String, text: String, timestamp: String)
+case class IncomingSlackMessage(`type`: String, channel: String, text: String, ts: String)
