@@ -11,8 +11,8 @@ import akka.stream.{ActorMaterializer, OverflowStrategy}
 import cats.data.Xor
 import com.typesafe.config.{Config, ConfigFactory}
 import de.heikoseeberger.akkahttpcirce.CirceSupport
-import io.circe.Json
-import io.circe.parse
+import io.circe.Decoder.Result
+import io.circe.{DecodingFailure, Json, parse}
 import io.circe.generic.auto._
 
 import scala.concurrent.duration.Duration
@@ -25,12 +25,12 @@ object LunchBot extends App with CirceSupport {
 
   val token: String = config.getString("lunchbot.token")
 
-  def handshake: Future[Option[SlackHandShake]] = for {
+  def handshake: Future[Result[SlackHandShake]] = for {
     response <- Http().singleRequest(HttpRequest(uri = s"https://slack.com/api/rtm.start?token=$token"))
     json <- Unmarshal(response.entity).to[Json]
     camelCaseJson = JsonUtils.snakeCaseToCamelCaseAll(json)
   } yield {
-    camelCaseJson.as[SlackHandShake].toOption
+    camelCaseJson.as[SlackHandShake]
   }
 
   def slackSource(url: WebsocketUrl): Source[Message, ActorRef] = {
@@ -49,24 +49,29 @@ object LunchBot extends App with CirceSupport {
     case TextMessage.Strict(text) =>
       parse.parse(text).map(JsonUtils.snakeCaseToCamelCaseAll) match {
         case Xor.Left(_) => ()
-        case Xor.Right(json) => () // TODO
+        case Xor.Right(json) => (println(json)) // TODO
       }
     case _ => ()
   }
 
-  val result: Future[(ActorRef, Future[Done])] = for {
+
+  val result: Future[Xor[DecodingFailure, (ActorRef, Future[Done])]] = for {
     hs <- handshake
-    if hs.isDefined
   } yield {
-    slackSource(WebsocketUrl(hs.get.url)).toMat(sink)(Keep.both).run()
+    hs match {
+      case Xor.Left(error) => Xor.Left(error)
+      case Xor.Right(success) => Xor.Right(slackSource(WebsocketUrl(success.url)).toMat(sink)(Keep.both).run())
+    }
   }
 
-  val (actorRef, done) = Await.result(result, Duration.Inf)
-  Await.result(done, Duration.Inf)
+  val termination = result.flatMap {
+    case Xor.Left(err) => Future.successful(println(s"Handshake failed: $err"))
+    case Xor.Right((actorRef, done)) =>
+      println("Press enter to exit")
+      System.in.read()
+      materializer.shutdown()
+      system.terminate()
+  }
 
-  println("Press enter to exit")
-  System.in.read()
 
-  materializer.shutdown()
-  Await.result(system.terminate(), Duration.Inf)
 }
