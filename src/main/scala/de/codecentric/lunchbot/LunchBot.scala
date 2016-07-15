@@ -14,6 +14,7 @@ import de.heikoseeberger.akkahttpcirce.CirceSupport
 import io.circe.Decoder.Result
 import io.circe.{DecodingFailure, Json, parse}
 import io.circe.generic.auto._
+import io.circe.syntax._
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
@@ -24,6 +25,7 @@ object LunchBot extends App with CirceSupport {
   val config: Config = ConfigFactory.load()
 
   val token: String = config.getString("lunchbot.token")
+  val defaultChannel: String = config.getString("lunchbot.default_channel")
 
   def handshake: Future[Result[SlackHandShake]] = for {
     response <- Http().singleRequest(HttpRequest(uri = s"https://slack.com/api/rtm.start?token=$token"))
@@ -49,7 +51,7 @@ object LunchBot extends App with CirceSupport {
     case TextMessage.Strict(text) =>
       parse.parse(text).map(JsonUtils.snakeCaseToCamelCaseAll) match {
         case Xor.Left(_) => ()
-        case Xor.Right(json) => (println(json)) // TODO
+        case Xor.Right(json) => () // TODO
       }
     case _ => ()
   }
@@ -67,6 +69,9 @@ object LunchBot extends App with CirceSupport {
   val termination = result.flatMap {
     case Xor.Left(err) => Future.successful(println(s"Handshake failed: $err"))
     case Xor.Right((actorRef, done)) =>
+
+      actorRef ! TextMessage(OutgoingSlackMessage(42, defaultChannel, "I'm active").asJson.toString)
+
       println("Press enter to exit")
       System.in.read()
       materializer.shutdown()

@@ -1,5 +1,7 @@
 package de.codecentric.lunchbot
 
+import io.circe.{Json, Encoder}
+
 
 /*
   {
@@ -58,3 +60,18 @@ package de.codecentric.lunchbot
 case class User(id: String, name: String, realName: Option[String], isBot: Option[Boolean])
 
 case class SlackHandShake(users: List[User], url: String)
+
+case class OutgoingSlackMessage(id: Int, channel: String, text: String)
+
+object OutgoingSlackMessage {
+  implicit val encoder: Encoder[OutgoingSlackMessage] = Encoder.instance {
+    message => Json.fromFields(Seq(
+      "id"      -> Json.fromInt(message.id),
+      "channel" -> Json.fromString(message.channel),
+      "text"    -> Json.fromString(message.text),
+      "type"    -> Json.fromString("message")
+    ))
+  }
+}
+
+case class IncomingSlackMessage(`type`: String, channel: String, text: String, timestamp: String)
