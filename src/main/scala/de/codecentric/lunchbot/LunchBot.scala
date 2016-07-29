@@ -1,7 +1,7 @@
 package de.codecentric.lunchbot
 
 import akka.Done
-import akka.actor.{ActorRef, ActorSystem}
+import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.ws.{Message, TextMessage, WebSocketRequest, WebSocketUpgradeResponse}
@@ -49,24 +49,26 @@ object LunchBot extends App with CirceSupport {
 
   val receiveActor = system.actorOf(ReceiveActor.props(defaultChannel))
 
-  val sink: Sink[Message, Future[Done]] = Sink.foreach {
+  val result: Future[Xor[DecodingFailure, (ActorRef, Future[Done])]] = for {
+    handshakeResult <- handshake
+  } yield {
+    handshakeResult match {
+      case Xor.Left(error) => Xor.Left(error)
+      case Xor.Right(handshake) =>
+        val translator = system.actorOf(Props(new Translator(handshake, receiveActor)))
+        Xor.Right(slackSource(WebsocketUrl(handshake.url)).
+          toMat(sink(translator))(Keep.both).run())
+    }
+  }
+
+  def sink(incomingMsgReceiver: ActorRef): Sink[Message, Future[Done]] = Sink.foreach {
     case TextMessage.Strict(text) =>
       parse.parse(text).map(JsonUtils.snakeCaseToCamelCaseAll) match {
         case Xor.Left(_) => ()
         case Xor.Right(json) =>
-          json.as[IncomingSlackMessage].foreach(msg => receiveActor ! msg)
+          json.as[IncomingSlackMessage].foreach(msg => incomingMsgReceiver ! msg)
       }
     case _ => ()
-  }
-
-
-  val result: Future[Xor[DecodingFailure, (ActorRef, Future[Done])]] = for {
-    hs <- handshake
-  } yield {
-    hs match {
-      case Xor.Left(error) => Xor.Left(error)
-      case Xor.Right(success) => Xor.Right(slackSource(WebsocketUrl(success.url)).toMat(sink)(Keep.both).run())
-    }
   }
 
   val termination = result.flatMap {
@@ -81,6 +83,4 @@ object LunchBot extends App with CirceSupport {
       materializer.shutdown()
       system.terminate()
   }
-
-
 }
