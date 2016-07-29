@@ -10,11 +10,11 @@ import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
 import cats.data.Xor
 import com.typesafe.config.{Config, ConfigFactory}
-import de.codecentric.lunchbot.ReceiveActor.SlackEndpoint
+import de.codecentric.lunchbot.actors.{Receive$, Translator}
+import de.codecentric.lunchbot.actors.Receiver.SlackEndpoint
 import de.heikoseeberger.akkahttpcirce.CirceSupport
 import io.circe.Decoder.Result
 import io.circe.generic.auto._
-import io.circe.syntax._
 import io.circe.{DecodingFailure, Json, parse}
 
 import scala.concurrent.Future
@@ -54,7 +54,7 @@ object LunchBot extends App with CirceSupport {
     handshakeResult match {
       case Xor.Left(error) => Xor.Left(error)
       case Xor.Right(handshake) =>
-        val receiveActor = system.actorOf(ReceiveActor.props(defaultChannel, handshake.self))
+        val receiveActor = system.actorOf(Receive.props(defaultChannel, handshake.self))
         val translator = system.actorOf(Props(new Translator(handshake, receiveActor)))
         val (actoreRef, done) = slackSource(WebsocketUrl(handshake.url)).
           toMat(sink(translator))(Keep.both).run()
@@ -76,7 +76,7 @@ object LunchBot extends App with CirceSupport {
     case Xor.Left(err) => Future.successful(println(s"Handshake failed: $err"))
     case Xor.Right(bootResult) =>
       bootResult.receiverRef ! bootResult.slackEndpoint
-      bootResult.receiverRef ! ReceiveActor.SendMessage(startupMessage, defaultChannel)
+      bootResult.receiverRef ! Receive.SendMessage(startupMessage, defaultChannel)
 
       println("Press enter to exit")
       System.in.read()

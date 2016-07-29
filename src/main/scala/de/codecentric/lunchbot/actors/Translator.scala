@@ -1,6 +1,7 @@
-package de.codecentric.lunchbot
+package de.codecentric.lunchbot.actors
 
 import akka.actor.{Actor, ActorRef}
+import de.codecentric.lunchbot.{IncomingSlackMessage, SlackHandShake, User}
 
 class Translator(handshake: SlackHandShake, forward: ActorRef) extends Actor {
   override def receive: Receive = {
