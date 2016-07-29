@@ -61,7 +61,7 @@ case class User(id: String,
                 realName: Option[String],
                 isBot: Option[Boolean])
 
-case class SlackHandShake(users: List[User], url: String)
+case class SlackHandShake(users: List[User], url: String, self: User)
 
 case class OutgoingSlackMessage(id: Int, channel: String, text: String)
 

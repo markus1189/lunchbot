@@ -26,6 +26,7 @@ object LunchBot extends App with CirceSupport {
 
   val token: String = config.getString("lunchbot.token")
   val defaultChannel: String = config.getString("lunchbot.default_channel")
+  val startupMessage: String = config.getString("lunchbot.startup_message")
 
   def handshake: Future[Result[SlackHandShake]] = for {
     response <- Http().singleRequest(HttpRequest(uri = s"https://slack.com/api/rtm.start?token=$token"))
@@ -47,36 +48,35 @@ object LunchBot extends App with CirceSupport {
   implicit val materializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
 
-  val receiveActor = system.actorOf(ReceiveActor.props(defaultChannel))
-
-  val result: Future[Xor[DecodingFailure, (ActorRef, Future[Done])]] = for {
+  val result: Future[Xor[DecodingFailure, BootResult]] = for {
     handshakeResult <- handshake
   } yield {
     handshakeResult match {
       case Xor.Left(error) => Xor.Left(error)
       case Xor.Right(handshake) =>
+        val receiveActor = system.actorOf(ReceiveActor.props(defaultChannel, handshake.self))
         val translator = system.actorOf(Props(new Translator(handshake, receiveActor)))
-        Xor.Right(slackSource(WebsocketUrl(handshake.url)).
-          toMat(sink(translator))(Keep.both).run())
+        val (actoreRef, done) = slackSource(WebsocketUrl(handshake.url)).
+          toMat(sink(translator))(Keep.both).run()
+        Xor.Right(BootResult(SlackEndpoint(actoreRef), done, receiveActor))
     }
   }
 
-  def sink(incomingMsgReceiver: ActorRef): Sink[Message, Future[Done]] = Sink.foreach {
+  def sink(receiver: ActorRef): Sink[Message, Future[Done]] = Sink.foreach {
     case TextMessage.Strict(text) =>
       parse.parse(text).map(JsonUtils.snakeCaseToCamelCaseAll) match {
         case Xor.Left(_) => ()
         case Xor.Right(json) =>
-          json.as[IncomingSlackMessage].foreach(msg => incomingMsgReceiver ! msg)
+          json.as[IncomingSlackMessage].foreach(msg => receiver ! msg)
       }
     case _ => ()
   }
 
   val termination = result.flatMap {
     case Xor.Left(err) => Future.successful(println(s"Handshake failed: $err"))
-    case Xor.Right((actorRef, done)) =>
-
-      receiveActor ! SlackEndpoint(actorRef)
-      actorRef ! TextMessage(OutgoingSlackMessage(42, defaultChannel, "I'm active").asJson.toString)
+    case Xor.Right(bootResult) =>
+      bootResult.receiverRef ! bootResult.slackEndpoint
+      bootResult.receiverRef ! ReceiveActor.SendMessage(startupMessage, defaultChannel)
 
       println("Press enter to exit")
       System.in.read()

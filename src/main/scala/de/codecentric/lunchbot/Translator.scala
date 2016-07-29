@@ -3,14 +3,12 @@ package de.codecentric.lunchbot
 import akka.actor.{Actor, ActorRef}
 
 class Translator(handshake: SlackHandShake, forward: ActorRef) extends Actor {
-  private val idRegex = """<@(\w{9})>""".r
-
   override def receive: Receive = {
     case msg: IncomingSlackMessage => forward ! translateMessage(msg)
   }
 
   private def translateMessage(msg: IncomingSlackMessage): IncomingSlackMessage = {
-    msg.copy(user = translateUser(msg.user), text = translateText(msg.text))
+    msg.copy(user = translateUser(msg.user))
   }
 
   def translateUser(userId: String): String = {
@@ -20,7 +18,4 @@ class Translator(handshake: SlackHandShake, forward: ActorRef) extends Actor {
 
     (realNameOption orElse nameOption).getOrElse(userId)
   }
-
-  def translateText(text: String): String =
-    idRegex.replaceAllIn(text, matcher => s"<@${translateUser(matcher.group(1))}>")
 }
