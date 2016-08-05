@@ -17,10 +17,10 @@ class MessagesFromSlackReceiver(defaultChannel: String, self: User) extends Acto
 
   override def receive: Receive = {
     case SlackEndpoint(ref) => slackEndpoint = Some(ref)
-    case IncomingSlackMessage("message", _, text, _, user)
-      if text.contains(self.id) || text.contains(self.name) =>
-      sendMessage(s"Hello $user")
-    case msg: IncomingSlackMessage if msg.`type` == "message" =>
+    case IncomingSlackMessage("message", _, text, _, sender,_)
+      if text.contains(s"<@${self.id}>") || text.contains(s"<@${self.name}>") =>
+      sendMessage(s"Hello $sender")
+    case msg: IncomingSlackMessage if msg.`type` == "message" && msg.user != self.id =>
       sendMessage(s"ECHO: ${msg.text}")
     case msg: SendMessage => sendMessage(msg.text, msg.channel)
   }

@@ -86,4 +86,5 @@ case class IncomingSlackMessage(`type`: String,
                                 channel: String,
                                 text: String,
                                 ts: String,
-                                user: String)
+                                user: String,
+                                translatedUser: Option[User])

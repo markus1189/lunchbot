@@ -5,15 +5,10 @@ import de.codecentric.lunchbot.{IncomingSlackMessage, SlackHandShake, User}
 
 class Translator(handshake: SlackHandShake, forward: ActorRef) extends Actor {
   override def receive: Receive = {
-    case msg: IncomingSlackMessage => forward ! translateMessage(msg)
+    case msg: IncomingSlackMessage => forward ! expandUser(msg)
   }
 
-  private def translateMessage(msg: IncomingSlackMessage): IncomingSlackMessage = {
-    msg.copy(user = translateUser(msg.user))
-  }
-
-  def translateUser(userId: String): String = {
-    val userOption: Option[User] = handshake.users.find(_.id == userId)
-    userOption.map(_.displayName).getOrElse(userId)
+  private def expandUser(msg: IncomingSlackMessage): IncomingSlackMessage = {
+    msg.copy(translatedUser = handshake.users.find(_.id == msg.user))
   }
 }

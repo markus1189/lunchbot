@@ -11,30 +11,40 @@ import scala.concurrent.duration._
 
 class MessagesFromSlackReceiverTest extends TestKit(ActorSystem("test")) with FlatSpecLike with Matchers {
 
-  val receiversUser = User("1", "lunchbot", None, Some(true))
+  val lunchBot = User("1", "lunchbot", None, Some(true))
   val defaultChat = "default chat channel"
   val messageSendingUser = User("2", "Message Sender Dude", None, None)
 
   "A Receiver Actor" should "receive Messages from default chat channel" in {
-    val receiver = TestActorRef(MessagesFromSlackReceiver.props(defaultChat, receiversUser))
+    val receiver = TestActorRef(MessagesFromSlackReceiver.props(defaultChat, lunchBot))
     receiver ! SlackEndpoint(testActor)
 
-    receiver ! IncomingSlackMessage("message", defaultChat, "Hey @lunchbot!", "42", messageSendingUser.displayName)
+    receiver ! IncomingSlackMessage("message", defaultChat, "Hey <@lunchbot>!", "42", messageSendingUser.displayName, None)
 
-    expectMsgPF(1.seconds) {
+    expectMsgPF(1.second) {
       case TextMessage.Strict(text) if text.contains(messageSendingUser.displayName) => ()
     }
   }
 
   it should "echo to incoming messages" in {
-    val receiver = TestActorRef(MessagesFromSlackReceiver.props(defaultChat, receiversUser))
+    val receiver = TestActorRef(MessagesFromSlackReceiver.props(defaultChat, lunchBot))
     receiver ! SlackEndpoint(testActor)
 
-    receiver ! IncomingSlackMessage("message", defaultChat, "woot", "42", messageSendingUser.displayName)
+    receiver ! IncomingSlackMessage("message", defaultChat, "woot", "42", messageSendingUser.displayName, None)
 
-    expectMsgPF(1.seconds) {
+    expectMsgPF(1.second) {
       case TextMessage.Strict(text) if text.contains("ECHO: woot") => ()
     }
+  }
+
+  it should "not echo to own messages" in {
+    val receiver = TestActorRef(MessagesFromSlackReceiver.props(defaultChat, lunchBot))
+    receiver ! SlackEndpoint(testActor)
+
+    receiver ! IncomingSlackMessage("message", defaultChat, "lol :)", "42", lunchBot.id, None)
+
+    expectNoMsg(1.second)
+
   }
 
 }
