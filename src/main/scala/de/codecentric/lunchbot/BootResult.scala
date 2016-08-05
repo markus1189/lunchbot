@@ -2,7 +2,7 @@ package de.codecentric.lunchbot
 
 import akka.Done
 import akka.actor.ActorRef
-import de.codecentric.lunchbot.actors.Receiver.SlackEndpoint
+import actors.MessagesFromSlackReceiver.SlackEndpoint
 
 import scala.concurrent.Future
 

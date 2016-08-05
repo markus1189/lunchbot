@@ -2,11 +2,11 @@ package de.codecentric.lunchbot.actors
 
 import akka.actor.{Actor, ActorRef, Props}
 import akka.http.scaladsl.model.ws.TextMessage
-import de.codecentric.lunchbot.actors.Receiver.{SendMessage, SlackEndpoint}
+import MessagesFromSlackReceiver.{SendMessage, SlackEndpoint}
 import de.codecentric.lunchbot.{IncomingSlackMessage, OutgoingSlackMessage, User}
 import io.circe.syntax._
 
-class Receiver(defaultChannel: String, self: User) extends Actor {
+class MessagesFromSlackReceiver(defaultChannel: String, self: User) extends Actor {
   var outgoingId = 0
   var slackEndpoint: Option[ActorRef] = None
 
@@ -31,8 +31,8 @@ class Receiver(defaultChannel: String, self: User) extends Actor {
   }
 }
 
-object Receiver {
-  def props(defaultChannel:String, self: User) = Props(new Receiver(defaultChannel, self))
+object MessagesFromSlackReceiver {
+  def props(defaultChannel:String, self: User) = Props(new MessagesFromSlackReceiver(defaultChannel, self))
 
   case class SlackEndpoint(actorRef: ActorRef)
 

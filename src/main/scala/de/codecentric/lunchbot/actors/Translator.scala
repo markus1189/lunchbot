@@ -14,9 +14,6 @@ class Translator(handshake: SlackHandShake, forward: ActorRef) extends Actor {
 
   def translateUser(userId: String): String = {
     val userOption: Option[User] = handshake.users.find(_.id == userId)
-    val realNameOption: Option[String] = userOption.flatMap(_.realName)
-    val nameOption: Option[String] = userOption.map(_.name)
-
-    (realNameOption orElse nameOption).getOrElse(userId)
+    userOption.map(_.displayName).getOrElse(userId)
   }
 }

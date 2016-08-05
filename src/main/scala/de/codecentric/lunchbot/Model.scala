@@ -59,7 +59,11 @@ import io.circe.{Json, Encoder}
 case class User(id: String,
                 name: String,
                 realName: Option[String],
-                isBot: Option[Boolean])
+                isBot: Option[Boolean]) {
+  def displayName: String = {
+    realName.getOrElse(name)
+  }
+}
 
 case class SlackHandShake(users: List[User], url: String, self: User)
 
