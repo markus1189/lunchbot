@@ -6,33 +6,37 @@ import MessagesFromSlackReceiver.{SendMessage, SlackEndpoint}
 import de.codecentric.lunchbot.{IncomingSlackMessage, OutgoingSlackMessage, User}
 import io.circe.syntax._
 
-class MessagesFromSlackReceiver(defaultChannel: String, self: User) extends Actor {
+class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Actor {
   var outgoingId = 0
   var slackEndpoint: Option[ActorRef] = None
 
   def freshId() = {
-    outgoingId+=1
+    outgoingId += 1
     outgoingId
   }
 
   override def receive: Receive = {
     case SlackEndpoint(ref) => slackEndpoint = Some(ref)
-    case IncomingSlackMessage("message", _, text, _, sender,_)
-      if text.contains(s"<@${self.id}>") || text.contains(s"<@${self.name}>") =>
-      sendMessage(s"Hello $sender")
-    case msg: IncomingSlackMessage if msg.`type` == "message" && msg.user != self.id =>
+    case m @ IncomingSlackMessage("message", _, text, _, sender, senderUser) if text.contains(s"<@${self.id}>") =>
+      println(m)
+      sendMessage(s"Hello ${senderUser.map(_.displayName).getOrElse(sender)}", sender)
+    // TODO: clarify how to send direct messages
+//      sendMessage(s"Hello ${senderUser.map(_.displayName).getOrElse(sender)}", "D0BLAU7PW")
+    case msg: IncomingSlackMessage if msg.user != self.id =>
       sendMessage(s"ECHO: ${msg.text}")
-    case msg: SendMessage => sendMessage(msg.text, msg.channel)
+    case msg: SendMessage =>
+      sendMessage(msg.text, msg.channel)
   }
 
-  def sendMessage(text: String, channel: String = defaultChannel): Unit = {
-    val outMsg = OutgoingSlackMessage(freshId(), defaultChannel, text)
+  def sendMessage(text: String, receiver: String = defaultReceiver): Unit = {
+    val outMsg = OutgoingSlackMessage(freshId(), receiver, text)
+    println(outMsg)
     slackEndpoint.foreach(_ ! TextMessage(outMsg.asJson.toString))
   }
 }
 
 object MessagesFromSlackReceiver {
-  def props(defaultChannel:String, self: User) = Props(new MessagesFromSlackReceiver(defaultChannel, self))
+  def props(defaultChannel: String, self: User) = Props(new MessagesFromSlackReceiver(defaultChannel, self))
 
   case class SlackEndpoint(actorRef: ActorRef)
 

@@ -3,8 +3,9 @@ package de.codecentric.lunchbot.actors
 import akka.actor.ActorSystem
 import akka.http.scaladsl.model.ws.TextMessage
 import akka.testkit.{TestActorRef, TestKit}
+import cats.data.Xor
 import de.codecentric.lunchbot.actors.MessagesFromSlackReceiver.SlackEndpoint
-import de.codecentric.lunchbot.{IncomingSlackMessage, User}
+import de.codecentric.lunchbot.{IncomingSlackMessage, OutgoingSlackMessage, User}
 import org.scalatest.{FlatSpecLike, Matchers}
 
 import scala.concurrent.duration._
@@ -15,14 +16,23 @@ class MessagesFromSlackReceiverTest extends TestKit(ActorSystem("test")) with Fl
   val defaultChat = "default chat channel"
   val messageSendingUser = User("2", "Message Sender Dude", None, None)
 
-  "A Receiver Actor" should "receive Messages from default chat channel" in {
+  "A Receiver Actor" should "reply to private chat channel" in {
+    import io.circe.generic.auto._
     val receiver = TestActorRef(MessagesFromSlackReceiver.props(defaultChat, lunchBot))
     receiver ! SlackEndpoint(testActor)
 
-    receiver ! IncomingSlackMessage("message", defaultChat, "Hey <@lunchbot>!", "42", messageSendingUser.displayName, None)
+    receiver ! IncomingSlackMessage("message", defaultChat, "Hey <@1>!", "42", messageSendingUser.id, Some(messageSendingUser))
 
     expectMsgPF(1.second) {
-      case TextMessage.Strict(text) if text.contains(messageSendingUser.displayName) => ()
+      case TextMessage.Strict(text) if text.contains(messageSendingUser.displayName) =>
+        val outgoingMessage = for {
+          json <- io.circe.parse.parse(text)
+          m <- json.as[OutgoingSlackMessage]
+        } yield m
+        outgoingMessage match {
+          case Xor.Left(_) => fail
+          case Xor.Right(m) => m.channel shouldBe messageSendingUser.id
+        }
     }
   }
 
