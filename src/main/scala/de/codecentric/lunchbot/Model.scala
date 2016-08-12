@@ -65,7 +65,9 @@ case class User(id: String,
   }
 }
 
-case class SlackHandShake(users: List[User], url: String, self: User)
+case class DirectMessageChannel(id: String, user: String)
+
+case class SlackHandShake(users: List[User], url: String, self: User, ims: List[DirectMessageChannel])
 
 case class OutgoingSlackMessage(id: Int, channel: String, text: String)
 
