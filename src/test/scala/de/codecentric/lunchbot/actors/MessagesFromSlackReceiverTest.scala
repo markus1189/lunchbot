@@ -1,16 +1,14 @@
 package de.codecentric.lunchbot.actors
 
-import akka.actor.ActorSystem
 import akka.http.scaladsl.model.ws.TextMessage
-import akka.testkit.{TestActorRef, TestKit}
+import akka.testkit.TestActorRef
 import cats.data.Xor
 import de.codecentric.lunchbot.actors.MessagesFromSlackReceiver.SlackEndpoint
 import de.codecentric.lunchbot.{IncomingSlackMessage, OutgoingSlackMessage, User}
-import org.scalatest.{FlatSpecLike, Matchers}
 
 import scala.concurrent.duration._
 
-class MessagesFromSlackReceiverTest extends TestKit(ActorSystem("test")) with FlatSpecLike with Matchers {
+class MessagesFromSlackReceiverTest extends ActorTest {
 
   val lunchBot = User("1", "lunchbot", None, Some(true))
   val defaultChat = "default chat channel"
