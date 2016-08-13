@@ -1,12 +1,12 @@
 package de.codecentric.lunchbot.actors
 
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, Props, ActorLogging}
 import akka.http.scaladsl.model.ws.TextMessage
 import MessagesFromSlackReceiver.{SendMessage, SlackEndpoint}
 import de.codecentric.lunchbot.{IncomingSlackMessage, OutgoingSlackMessage, User}
 import io.circe.syntax._
 
-class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Actor {
+class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Actor with ActorLogging {
   var outgoingId = 0
   var slackEndpoint: Option[ActorRef] = None
 
@@ -17,8 +17,8 @@ class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Act
 
   override def receive: Receive = {
     case SlackEndpoint(ref) => slackEndpoint = Some(ref)
-    case m @ IncomingSlackMessage("message", _, text, _, sender, senderUser) if text.contains(s"<@${self.id}>") =>
-      println(m)
+    case m@IncomingSlackMessage("message", _, text, _, sender, senderUser) if text.contains(s"<@${self.id}>") =>
+      log.debug(s"Received message: $m")
       sendMessage(s"Hello ${senderUser.map(_.displayName).getOrElse(sender)}", sender)
     // TODO: clarify how to send direct messages
 //      sendMessage(s"Hello ${senderUser.map(_.displayName).getOrElse(sender)}", "D0BLAU7PW")
@@ -30,7 +30,7 @@ class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Act
 
   def sendMessage(text: String, receiver: String = defaultReceiver): Unit = {
     val outMsg = OutgoingSlackMessage(freshId(), receiver, text)
-    println(outMsg)
+    log.debug(s"Sending message: $outMsg")
     slackEndpoint.foreach(_ ! TextMessage(outMsg.asJson.toString))
   }
 }
