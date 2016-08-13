@@ -1,7 +1,7 @@
 package de.codecentric.lunchbot.actors
 
 import akka.actor.{Actor, Props}
-import akka.testkit.{TestActorRef, ImplicitSender}
+import akka.testkit.{TestActorRef, ImplicitSender, TestProbe}
 import de.codecentric.lunchbot.actors.PmChannelsActor.ResolveChannel
 import de.codecentric.lunchbot.actors.WebApiHandler.OpenIMChannel
 import de.codecentric.lunchbot.{DirectMessageChannel, SlackHandShake}
@@ -25,19 +25,14 @@ class PmChannelsActorTest extends ActorTest with ImplicitSender {
     val channel = DirectMessageChannel("1", "some guy's ID")
     val handshake = emptyHandshake
 
-    val apiHandler = TestActorRef(Props(new MockApiHandler))
+    val apiHandler = TestProbe()
 
-    val pmChannelsActor = TestActorRef(PmChannelsActor.props(handshake, apiHandler))
+    val pmChannelsActor = TestActorRef(PmChannelsActor.props(handshake, apiHandler.ref))
     pmChannelsActor ! ResolveChannel("some guy's ID")
+    apiHandler.expectMsgPF(1.second) {
+      case OpenIMChannel(_,replyTo) => replyTo ! channel
+    }
 
     expectMsg(channel)
   }
-
-  class MockApiHandler extends Actor {
-    def receive = {
-      case OpenIMChannel(_,replyTo) =>
-        replyTo ! DirectMessageChannel("1", "some guy's ID")
-    }
-  }
-
 }
