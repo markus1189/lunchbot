@@ -1,23 +1,24 @@
 package de.codecentric.lunchbot.actors
 
-import akka.pattern.pipe
 import akka.actor._
+import akka.actor.{Actor, ActorRef, Props}
 import akka.http.scaladsl._
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.unmarshalling.Unmarshal
+import akka.pattern.pipe
 import akka.stream._
 import cats.data.{ Xor, XorT }
 import cats.std.future._
 import cats.syntax.applicativeError._
 import de.codecentric.lunchbot.SlackHandShake
+import de.codecentric.lunchbot._
 import de.codecentric.lunchbot.actors.PmChannelsActor._
 import de.codecentric.lunchbot.actors.WebApiHandler.Im
+import de.codecentric.lunchbot.{ChannelId, SlackHandShake}
 import de.heikoseeberger.akkahttpcirce.CirceSupport
 import io.circe.Decoder.Result
 import io.circe.generic.auto._
 import io.circe.{ DecodingFailure, _ }
-
-import de.codecentric.lunchbot._
 import scala.concurrent.Future
 
 class PmChannelsActor(handShake: SlackHandShake, webApiHandler: ActorRef) extends Actor {
@@ -38,13 +39,17 @@ object PmChannelsActor {
   case class ResolveChannel(userId: UserId)
 }
 
-class WebApiHandler(slackToken: String) extends Actor {
+class WebApiHandler(slackApi: SlackApi) extends Actor {
+
+  import context.dispatcher
+
   def receive = {
-    case Im.Open(userId, forwardTo) => ???
+    case Im.Open(userId, forwardTo) => slackApi.openPmChannel(userId).map(_.map(Im.Opened(_))) pipeTo forwardTo
   }
 }
+
 object WebApiHandler {
-  def props(slackToken: String) = Props(new WebApiHandler(slackToken))
+  def props(slackApi: SlackApi) = Props(new WebApiHandler(slackApi))
 
   object Im {
     case class Open(userId: UserId, forwardTo: ActorRef)

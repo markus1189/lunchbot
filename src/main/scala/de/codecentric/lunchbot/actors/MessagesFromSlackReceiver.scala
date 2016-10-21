@@ -21,8 +21,6 @@ class MessagesFromSlackReceiver(defaultReceiver: SlackId, self: User) extends Ac
     case SlackEndpoint(ref) => slackEndpoint = Some(ref)
     case m@IncomingSlackMessage("message", _, text, _, sender, senderUser) if text.contains(s"<@${self.id.value}>") =>
       log.debug(s"Received message: $m")
-      sendMessage(s"Hello ${senderUser.map(_.displayName).getOrElse(sender)}", sender)
-    // TODO: clarify how to send direct messages
 //      sendMessage(s"Hello ${senderUser.map(_.displayName).getOrElse(sender)}", "D0BLAU7PW")
     case msg: IncomingSlackMessage if msg.user != self.id =>
       sendMessage(s"ECHO: ${msg.text}")
@@ -38,6 +36,7 @@ class MessagesFromSlackReceiver(defaultReceiver: SlackId, self: User) extends Ac
 }
 
 object MessagesFromSlackReceiver {
+  // TODO: add pmChannels to ctor
   def props(defaultChannel: SlackId, self: User) = Props(new MessagesFromSlackReceiver(defaultChannel, self))
 
   case class SlackEndpoint(actorRef: ActorRef)
