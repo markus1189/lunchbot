@@ -56,9 +56,9 @@ object LunchBot extends App with CirceSupport {
       case Xor.Right(handshake) =>
         val receiveActor = system.actorOf(MessagesFromSlackReceiver.props(defaultChannel, handshake.self))
         val translator = system.actorOf(Props(new Translator(handshake, receiveActor)))
-        val (actoreRef, done) = slackSource(WebsocketUrl(handshake.url)).
+        val (actorRef, done) = slackSource(WebsocketUrl(handshake.url)).
           toMat(sink(translator))(Keep.both).run()
-        Xor.Right(BootResult(SlackEndpoint(actoreRef), done, receiveActor))
+        Xor.Right(BootResult(SlackEndpoint(actorRef), done, receiveActor))
     }
   }
 
@@ -72,15 +72,21 @@ object LunchBot extends App with CirceSupport {
     case _ => ()
   }
 
+  def shutDown() = {
+    materializer.shutdown()
+    system.terminate()
+  }
+
   val termination = result.flatMap {
-    case Xor.Left(err) => Future.successful(println(s"Handshake failed: $err"))
+    case Xor.Left(err) =>
+      Future.failed(new OutOfMemoryError(s"Handshake failed: $err"))
+      shutDown()
     case Xor.Right(bootResult) =>
       bootResult.receiverRef ! bootResult.slackEndpoint
       bootResult.receiverRef ! MessagesFromSlackReceiver.SendMessage(startupMessage, defaultChannel)
 
       println("Press enter to exit")
       System.in.read()
-      materializer.shutdown()
-      system.terminate()
+      shutDown()
   }
 }
