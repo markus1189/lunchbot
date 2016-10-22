@@ -6,7 +6,9 @@ import MessagesFromSlackReceiver.{SendMessage, SlackEndpoint}
 import de.codecentric.lunchbot.{IncomingSlackMessage, OutgoingSlackMessage, User}
 import io.circe.syntax._
 
-class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Actor with ActorLogging {
+import de.codecentric.lunchbot._
+
+class MessagesFromSlackReceiver(defaultReceiver: SlackId, self: User) extends Actor with ActorLogging {
   var outgoingId = 0
   var slackEndpoint: Option[ActorRef] = None
 
@@ -17,7 +19,7 @@ class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Act
 
   override def receive: Receive = {
     case SlackEndpoint(ref) => slackEndpoint = Some(ref)
-    case m@IncomingSlackMessage("message", _, text, _, sender, senderUser) if text.contains(s"<@${self.id}>") =>
+    case m@IncomingSlackMessage("message", _, text, _, sender, senderUser) if text.contains(s"<@${self.id.value}>") =>
       log.debug(s"Received message: $m")
       sendMessage(s"Hello ${senderUser.map(_.displayName).getOrElse(sender)}", sender)
     // TODO: clarify how to send direct messages
@@ -28,7 +30,7 @@ class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Act
       sendMessage(msg.text, msg.channel)
   }
 
-  def sendMessage(text: String, receiver: String = defaultReceiver): Unit = {
+  def sendMessage(text: String, receiver: SlackId = defaultReceiver): Unit = {
     val outMsg = OutgoingSlackMessage(freshId(), receiver, text)
     log.debug(s"Sending message: $outMsg")
     slackEndpoint.foreach(_ ! TextMessage(outMsg.asJson.toString))
@@ -36,10 +38,10 @@ class MessagesFromSlackReceiver(defaultReceiver: String, self: User) extends Act
 }
 
 object MessagesFromSlackReceiver {
-  def props(defaultChannel: String, self: User) = Props(new MessagesFromSlackReceiver(defaultChannel, self))
+  def props(defaultChannel: SlackId, self: User) = Props(new MessagesFromSlackReceiver(defaultChannel, self))
 
   case class SlackEndpoint(actorRef: ActorRef)
 
-  case class SendMessage(text: String, channel: String)
+  case class SendMessage(text: String, channel: SlackId)
 
 }

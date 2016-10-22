@@ -1,5 +1,7 @@
 package de.codecentric.lunchbot
 
+import actors.MessagesFromSlackReceiver.SlackEndpoint
+import actors._
 import akka.Done
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.http.scaladsl.Http
@@ -10,8 +12,6 @@ import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy}
 import cats.data.Xor
 import com.typesafe.config.{Config, ConfigFactory}
-import actors._
-import actors.MessagesFromSlackReceiver.SlackEndpoint
 import de.heikoseeberger.akkahttpcirce.CirceSupport
 import io.circe.Decoder.Result
 import io.circe.generic.auto._
@@ -25,15 +25,23 @@ object LunchBot extends App with CirceSupport {
   val config: Config = ConfigFactory.load()
 
   val token: String = config.getString("lunchbot.token")
-  val defaultChannel: String = config.getString("lunchbot.default_channel")
+  val defaultChannel: SlackId = ChannelId(config.getString("lunchbot.default_channel"))
   val startupMessage: String = config.getString("lunchbot.startup_message")
 
   def handshake: Future[Result[SlackHandShake]] = for {
     response <- Http().singleRequest(HttpRequest(uri = s"https://slack.com/api/rtm.start?token=$token"))
     json <- Unmarshal(response.entity).to[Json]
     camelCaseJson = JsonUtils.snakeCaseToCamelCaseAll(json)
+    isOk = camelCaseJson.hcursor.acursor.downField("ok").as[Boolean]
   } yield {
-    camelCaseJson.as[SlackHandShake]
+    isOk.flatMap {
+      case ok =>
+        if (ok) {
+          camelCaseJson.as[SlackHandShake]
+        } else {
+          Xor.Left(DecodingFailure(s"Error with returned json:\n${camelCaseJson}", List()))
+        }
+    }
   }
 
   def slackSource(url: WebsocketUrl): Source[Message, ActorRef] = {
@@ -52,7 +60,8 @@ object LunchBot extends App with CirceSupport {
     handshakeResult <- handshake
   } yield {
     handshakeResult match {
-      case Xor.Left(error) => Xor.Left(error)
+      case Xor.Left(error) =>
+        Xor.Left(error)
       case Xor.Right(handshake) =>
         val receiveActor = system.actorOf(MessagesFromSlackReceiver.props(defaultChannel, handshake.self))
         val translator = system.actorOf(Props(new Translator(handshake, receiveActor)))
@@ -77,16 +86,14 @@ object LunchBot extends App with CirceSupport {
     system.terminate()
   }
 
-  val termination = result.flatMap {
+  result.map {
     case Xor.Left(err) =>
-      Future.failed(new OutOfMemoryError(s"Handshake failed: $err"))
-      shutDown()
+      println(s"Handshake failed: $err")
     case Xor.Right(bootResult) =>
       bootResult.receiverRef ! bootResult.slackEndpoint
       bootResult.receiverRef ! MessagesFromSlackReceiver.SendMessage(startupMessage, defaultChannel)
 
       println("Press enter to exit")
       System.in.read()
-      shutDown()
-  }
+  }.foreach(_ => shutDown())
 }

@@ -1,62 +1,50 @@
 package de.codecentric.lunchbot
 
-import io.circe.{Json, Encoder}
+import io.circe._
+import io.circe.syntax._
+import cats.data.Xor
 
-/*
-  {
-        "id" : "asdf",
-        "team_id" : "asdfasdf",
-        "name" : "xxx.yyyyy",
-        "deleted" : false,
-        "status" : null,
-        "color" : "aba727",
-        "real_name" : "xxxx yyyyyyyyy",
-        "tz" : "Europe/Amsterdam",
-        "tz_label" : "Central European Summer Time",
-        "tz_offset" : 7200,
-        "profile" : {
-          "image_24" : "https://avatars.slack-edge.com/2015-12-22/xxxxx_24.jpg",
-          "image_32" : "https://avatars.slack-edge.com/2015-12-22/xxxx.jpg",
-          "image_48" : "https://avatars.slack-edge.com/2015-12-22/xxx_48.jpg",
-          "image_72" : "https://avatars.slack-edge.com/2015-12-22/xxxx_72.jpg",
-          "image_192" : "https://avatars.slack-edge.com/2015-12-22/xxxx2093ea1_192.jpg",
-          "image_original" : "https://avatars.slack-edge.com/2015-12-22/xxx1_original.jpg",
-          "first_name" : "xxxxx",
-          "last_name" : "yyyyy",
-          "title" : "job desc",
-          "skype" : "skype handle",
-          "phone" : "1234567890",
-          "fields" : {
-            "Xf0DAKQUPM" : {
-              "value" : "skype handle",
-              "alt" : ""
-            },
-            "Xf0EEHDZH8" : {
-              "value" : "job-desc",
-              "alt" : ""
-            },
-            "Xf0EEHD7UY" : {
-              "value" : "github handle",
-              "alt" : ""
-            }
-          },
-          "image_512" : "https://avatars.slack-edge.com/2015-12-22/xx.jpg",
-          "image_1024" : "https://avatars.slack-edge.com/2015-12-22/xxxxx.jpg",
-          "avatar_hash" : "fc95461fa090",
-          "real_name" : "xxxx yyyy",
-          "real_name_normalized" : "xxxxx yyyyy",
-          "email" : "xxx.yyyyy@domain.de"
-        },
-        "is_admin" : false,
-        "is_owner" : false,
-        "is_primary_owner" : false,
-        "is_restricted" : false,
-        "is_ultra_restricted" : false,
-        "is_bot" : false,
-        "presence" : "active"
-      }
- */
-case class User(id: String,
+sealed trait SlackId { def value: String }
+case class UserId(value: String) extends SlackId
+case class ChannelId(value: String) extends SlackId
+case class DmId(value: String) extends SlackId
+
+object SlackId {
+  implicit val decoder: Decoder[SlackId] = Decoder.instance { cursor =>
+    cursor.as[String].flatMap {
+      case s if s.startsWith("U") => Xor.right(UserId(s))
+      case s if s.startsWith("C") => Xor.right(ChannelId(s))
+      case s if s.startsWith("D") => Xor.right(DmId(s))
+      case s => Xor.Left(DecodingFailure(s"Invalid id: $s", List.empty))
+    }
+  }
+
+  implicit val userDecoder: Decoder[UserId] = Decoder.instance { cursor =>
+    cursor.
+      as[String].
+      ensure(DecodingFailure("Invalid id", List.empty))(_.startsWith("U")).
+      map(UserId(_))
+  }
+
+  implicit val channelDecoder: Decoder[ChannelId] = Decoder.instance { cursor =>
+    cursor.
+      as[String].
+      ensure(DecodingFailure("Invalid id", List.empty))(_.startsWith("C")).
+      map(ChannelId(_))
+  }
+
+  implicit val dmDecoder: Decoder[DmId] = Decoder.instance { cursor =>
+    cursor.
+      as[String].
+      ensure(DecodingFailure("Invalid id", List.empty))(_.startsWith("D")).
+      map(DmId(_))
+  }
+
+  implicit val encoder: Encoder[SlackId] =
+    Encoder.instance { sid => Json.fromString(sid.value)  }
+}
+
+case class User(id: UserId,
                 name: String,
                 realName: Option[String],
                 isBot: Option[Boolean]) {
@@ -65,11 +53,13 @@ case class User(id: String,
   }
 }
 
-case class DirectMessageChannel(id: String, user: String)
+abstract class Channel
+
+case class DirectMessageChannel(id: DmId, user: UserId)
 
 case class SlackHandShake(users: List[User], url: String, self: User, ims: List[DirectMessageChannel])
 
-case class OutgoingSlackMessage(id: Int, channel: String, text: String)
+case class OutgoingSlackMessage(id: Int, channel: SlackId, text: String)
 
 object OutgoingSlackMessage {
   implicit val encoder: Encoder[OutgoingSlackMessage] = Encoder.instance {
@@ -77,7 +67,7 @@ object OutgoingSlackMessage {
       Json.fromFields(
           Seq(
               "id" -> Json.fromInt(message.id),
-              "channel" -> Json.fromString(message.channel),
+              "channel" -> message.channel.asJson,
               "text" -> Json.fromString(message.text),
               "type" -> Json.fromString("message")
           ))
@@ -85,8 +75,8 @@ object OutgoingSlackMessage {
 }
 
 case class IncomingSlackMessage(`type`: String,
-                                channel: String,
+                                channel: SlackId,
                                 text: String,
                                 ts: String,
-                                user: String,
+                                user: UserId,
                                 translatedUser: Option[User])

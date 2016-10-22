@@ -1,9 +1,24 @@
 package de.codecentric.lunchbot.actors
 
-import akka.actor.{Actor, ActorRef, Props}
+import akka.pattern.pipe
+import akka.actor._
+import akka.http.scaladsl._
+import akka.http.scaladsl.model._
+import akka.http.scaladsl.unmarshalling.Unmarshal
+import akka.stream._
+import cats.data.{ Xor, XorT }
+import cats.std.future._
+import cats.syntax.applicativeError._
 import de.codecentric.lunchbot.SlackHandShake
 import de.codecentric.lunchbot.actors.PmChannelsActor._
-import de.codecentric.lunchbot.actors.WebApiHandler.OpenIMChannel
+import de.codecentric.lunchbot.actors.WebApiHandler.Im
+import de.heikoseeberger.akkahttpcirce.CirceSupport
+import io.circe.Decoder.Result
+import io.circe.generic.auto._
+import io.circe.{ DecodingFailure, _ }
+
+import de.codecentric.lunchbot._
+import scala.concurrent.Future
 
 class PmChannelsActor(handShake: SlackHandShake, webApiHandler: ActorRef) extends Actor {
   def receive = {
@@ -12,7 +27,7 @@ class PmChannelsActor(handShake: SlackHandShake, webApiHandler: ActorRef) extend
         case Some(channel) =>
           sender() ! channel
         case None =>
-          webApiHandler ! OpenIMChannel(userId, sender())
+          webApiHandler ! Im.Open(userId, sender())
       }
   }
 }
@@ -20,16 +35,19 @@ class PmChannelsActor(handShake: SlackHandShake, webApiHandler: ActorRef) extend
 object PmChannelsActor {
   def props(handShake: SlackHandShake, webApiHandler: ActorRef) = Props(new PmChannelsActor(handShake, webApiHandler))
 
-  case class ResolveChannel(userId: String)
+  case class ResolveChannel(userId: UserId)
 }
 
 class WebApiHandler(slackToken: String) extends Actor {
   def receive = {
-    case OpenIMChannel(userId, forwardTo) => ???
+    case Im.Open(userId, forwardTo) => ???
   }
 }
 object WebApiHandler {
   def props(slackToken: String) = Props(new WebApiHandler(slackToken))
 
-  case class OpenIMChannel(userId: String, forwardTo: ActorRef)
+  object Im {
+    case class Open(userId: UserId, forwardTo: ActorRef)
+    case class Opened(dmc: DirectMessageChannel)
+  }
 }
